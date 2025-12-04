@@ -1,0 +1,187 @@
+# WireGuard + V2Ray 双层代理方案
+
+通过 WireGuard 隧道连接云服务器中转节点，再通过 V2Ray 访问上游代理服务器。
+
+## 解决的问题
+
+**痛点：**
+- 本地网络出口受限，无法直接连接上游 V2Ray 节点
+- 直连上游节点不稳定，延迟高，丢包严重
+- 需要频繁切换代理节点
+
+**解决方案：**
+- 使用云服务器作为稳定的中转节点
+- 通过 WireGuard 建立加密隧道，连接速度快且稳定
+- 云服务器到上游节点的连接质量更好
+- 只需配置一次 WireGuard，后续可灵活更换上游节点
+
+## 架构说明
+
+```
+客户端 → WireGuard 隧道 → 云服务器(中转) → V2Ray 代理 → 上游服务器
+```
+
+- **WireGuard**: 提供加密隧道，连接到中转节点
+- **V2Ray**: 连接上游代理节点
+- **透明代理**: 自动代理所有流量，无需手动配置
+
+## 快速开始
+
+### 前提条件
+
+- Ubuntu Server 22.04 LTS 或 24.04 LTS
+- 云服务器实例（腾讯云 CVM/Lighthouse、阿里云 ECS、AWS EC2 等）
+- 可用的上游 V2Ray 服务器
+
+**Ubuntu 版本说明：**
+- 本项目完全兼容 Ubuntu 22.04 和 24.04
+- Ubuntu 24.04 默认使用 nftables，但通过 iptables 兼容层，所有 iptables 命令仍然正常工作
+- 脚本无需修改即可在两个版本上运行
+
+### 安装步骤
+
+**注意：以下脚本需要在远程云服务器上执行**
+
+```bash
+# 1. 安装 WireGuard
+sudo bash wireguard-install.sh
+
+# 2. 安装 V2Ray
+sudo bash v2ray-install-step1.sh
+
+# 3. 启用 TCP 透明代理
+sudo bash v2ray-install-step2-enable-tcp-proxy.sh
+
+# 4. (可选) 启用 UDP 透明代理
+sudo bash v2ray-install-step3-enable-udp-proxy.sh
+```
+
+### 完整部署流程
+
+**方式 1: SSH 登录后执行**
+
+```bash
+# 1. 从本地上传脚本到远程服务器
+scp *.sh ubuntu@<服务器IP>:~/
+
+# 2. SSH 登录到远程服务器
+ssh ubuntu@<服务器IP>
+
+# 3. 在远程服务器上依次执行脚本
+sudo bash wireguard-install.sh
+sudo bash v2ray-install-step1.sh
+sudo bash v2ray-install-step2-enable-tcp-proxy.sh
+sudo bash v2ray-install-step3-enable-udp-proxy.sh
+
+# 4. 退出远程服务器
+exit
+
+# 5. 下载配置文件到本地
+scp -r ubuntu@<服务器IP>:~/private ./
+```
+
+**方式 2: 使用 sshpass 远程执行（需要密码）**
+
+```bash
+# 1. 复制并配置环境变量
+cp .env.example .env
+# 编辑 .env 填入实际服务器信息
+
+# 2. 加载环境变量
+source .env
+
+# 3. 上传脚本
+sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh $SERVER_USER@$SERVER_IP:~/
+
+# 2. 远程执行脚本（-y 参数使用默认配置，无需交互）
+sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/wireguard-install.sh -y"
+sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step1.sh"
+sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step2-enable-tcp-proxy.sh"
+sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step3-enable-udp-proxy.sh"
+
+# 5. 下载配置文件
+sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no -r $SERVER_USER@$SERVER_IP:~/private ./
+```
+
+**注意**: 
+- 方式 2 需要安装 `sshpass`（macOS: `brew install sshpass`，Ubuntu: `apt install sshpass`）
+- `wireguard-install.sh -y` 使用默认配置（端口 51820，网段 10.0.8.0/24，2 个客户端）
+- 如需自定义配置，请使用方式 1
+
+## 功能特性
+
+### WireGuard VPN
+- 高性能加密隧道
+- 自动生成服务器和客户端配置
+- 支持多客户端
+
+### V2Ray 代理
+- SOCKS5 代理（端口 7890）
+- 智能路由（国内直连，国外代理）
+- Docker/Google/YouTube 域名代理
+
+### 透明代理
+- **TCP 透明代理**: 自动代理 HTTP/HTTPS 流量
+- **UDP 透明代理**: 支持 QUIC、DNS 等 UDP 应用
+
+## 客户端使用
+
+### 1. 连接 WireGuard
+- 安装 WireGuard 客户端
+- 导入 `private/client1.conf` 配置文件
+- 连接 VPN
+
+### 2. 验证代理
+```bash
+# 查看出口 IP
+curl ip-api.com
+# 应显示上游服务器的 IP
+```
+
+## 配置说明
+
+### 默认配置
+
+- **WireGuard 端口**: 51820 (UDP)
+- **VPN 网段**: 10.0.8.0/24
+- **SOCKS5 端口**: 7890
+- **TCP 透明代理端口**: 60001
+- **UDP 透明代理端口**: 60002
+
+### 防火墙
+
+云服务器安全组需要开放：
+- **UDP 51820**: WireGuard
+
+## 常用命令
+
+```bash
+# 查看 WireGuard 状态
+sudo systemctl status wg-quick@wg0
+sudo wg show
+
+# 查看 V2Ray 状态
+sudo systemctl status v2ray
+
+# 查看透明代理规则
+sudo iptables -t nat -L V2RAY -n -v
+sudo iptables -t mangle -L V2RAY_MARK -n -v
+```
+
+## 详细文档
+
+- [WireGuard 安装指南](docs/WIREGUARD-SETUP-GUIDE.md)
+- [V2Ray 安装指南](docs/V2RAY-INSTALL-STEP1.md)
+- [TCP 透明代理指南](docs/V2RAY-INSTALL-STEP2-ENABLE-TCP-PROXY.md)
+- [UDP 透明代理指南](docs/V2RAY-INSTALL-STEP3-ENABLE-UDP-PROXY.md)
+
+## 注意事项
+
+- 注意中继服务器和上游服务器的流量限制
+
+## 联系方式
+
+- Email: pholex@gmail.com
+
+---
+最后更新: 2025-12-04
