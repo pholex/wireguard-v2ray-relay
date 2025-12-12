@@ -187,16 +187,29 @@ echo ""
 
 # 检查端口监听
 echo "=== 检查端口监听 ==="
-# 兼容 IPv4 和 IPv6 监听格式
-if netstat -tlnp 2>/dev/null | grep -E "(:60001 |:60001$)" || ss -tlnp 2>/dev/null | grep -E "(:60001 |:60001$)"; then
+# 等待服务完全启动
+sleep 3
+
+# 检查端口监听（支持 IPv4 和 IPv6）
+TCP_PORT_CHECK=false
+for i in {1..5}; do
+    if ss -tlnp 2>/dev/null | grep -q ":60001"; then
+        TCP_PORT_CHECK=true
+        break
+    fi
+    echo "等待端口启动... ($i/5)"
+    sleep 2
+done
+
+if [ "$TCP_PORT_CHECK" = true ]; then
     echo "✓ 透明代理端口 60001 正在监听"
 else
     echo "✗ 透明代理端口 60001 未监听"
     echo "调试信息:"
-    echo "netstat 输出:"
-    netstat -tlnp 2>/dev/null | grep 60001 || echo "  未找到"
-    echo "ss 输出:"
-    ss -tlnp 2>/dev/null | grep 60001 || echo "  未找到"
+    echo "V2Ray 服务状态:"
+    systemctl status v2ray --no-pager -l | head -10
+    echo "所有 V2Ray 监听端口:"
+    ss -tlnp 2>/dev/null | grep v2ray || echo "  未找到"
     exit 1
 fi
 
@@ -256,12 +269,19 @@ echo "=== 保存 iptables 规则 ==="
 # 检查 iptables-persistent 是否已安装
 if ! dpkg -l | grep -q iptables-persistent; then
     echo "安装 iptables-persistent..."
-    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY apt install -y iptables-persistent >/dev/null 2>&1
+    # 预配置避免交互式提示
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+    
+    # 使用非交互模式安装
+    DEBIAN_FRONTEND=noninteractive env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY apt install -y iptables-persistent
     if [ $? -eq 0 ]; then
         echo "✓ iptables-persistent 已安装"
     else
         echo "⚠ iptables-persistent 安装失败，规则重启后会丢失"
     fi
+else
+    echo "✓ iptables-persistent 已安装"
 fi
 
 netfilter-persistent save

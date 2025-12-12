@@ -21,7 +21,7 @@ fi
 
 # 检查 TCP 透明代理是否已配置
 if ! iptables -t nat -L V2RAY -n >/dev/null 2>&1; then
-    echo "✗ TCP 透明代理未配置，请先运行 v2ray-upgrade-to-transparent-proxy-tcp.sh"
+    echo "✗ TCP 透明代理未配置，请先运行 v2ray-install-step2-enable-tcp-proxy.sh"
     exit 1
 fi
 
@@ -197,12 +197,30 @@ fi
 
 echo "✓ V2Ray 服务已重启"
 
-# 检查端口监听
+# 检查端口监听（支持 IPv4 和 IPv6）
 echo "检查端口监听..."
-if netstat -ulnp 2>/dev/null | grep -E "(:60002 |:60002$)" || ss -ulnp 2>/dev/null | grep -E "(:60002 |:60002$)"; then
+# 等待服务完全启动
+sleep 3
+
+UDP_PORT_CHECK=false
+for i in {1..5}; do
+    if ss -ulnp 2>/dev/null | grep -q ":60002"; then
+        UDP_PORT_CHECK=true
+        break
+    fi
+    echo "等待 UDP 端口启动... ($i/5)"
+    sleep 2
+done
+
+if [ "$UDP_PORT_CHECK" = true ]; then
     echo "✓ UDP 透明代理端口 60002 正在监听"
 else
     echo "✗ UDP 透明代理端口 60002 未监听"
+    echo "调试信息:"
+    echo "V2Ray 服务状态:"
+    systemctl status v2ray --no-pager -l | head -10
+    echo "所有 V2Ray UDP 监听端口:"
+    ss -ulnp 2>/dev/null | grep v2ray || echo "  未找到"
     exit 1
 fi
 

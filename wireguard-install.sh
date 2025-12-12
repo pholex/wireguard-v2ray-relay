@@ -44,6 +44,26 @@ CLOUD_PROVIDER="unknown"
 if curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
     CLOUD_PROVIDER="aliyun"
     echo "检测到阿里云 ECS 环境"
+    
+    # 只有在 WireGuard 未安装时才提醒内核升级问题
+    if ! command -v wg &> /dev/null; then
+        echo "⚠️  阿里云 ECS 安装 WireGuard 可能触发内核升级"
+        echo "建议先运行预安装脚本："
+        echo "sudo bash aliyun-pre-install.sh"
+        echo ""
+        if [ "$AUTO_YES" = false ]; then
+            read -p "是否继续安装? (可能触发内核升级) (y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "已取消，请先运行预安装脚本"
+                exit 1
+            fi
+        else
+            echo "自动模式: 继续安装（可能触发内核升级）"
+        fi
+    else
+        echo "✓ WireGuard 已安装，无内核升级问题"
+    fi
 elif curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
     CLOUD_PROVIDER="aws"
     echo "检测到 AWS EC2 环境"
@@ -112,6 +132,7 @@ if command -v wg &> /dev/null; then
     wg --version
 else
     echo "正在安装 WireGuard..."
+    
     apt update
     
     # 根据内核支持情况选择安装包
@@ -220,7 +241,13 @@ echo ""
 # 四、获取网卡名称
 echo "=== 检测网卡 ==="
 DEFAULT_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-echo "检测到默认网卡: $DEFAULT_INTERFACE"
+if [ -z "$DEFAULT_INTERFACE" ]; then
+    echo "⚠ 无法自动检测网卡，使用 eth0"
+    DEFAULT_INTERFACE="eth0"
+else
+    echo "检测到默认网卡: $DEFAULT_INTERFACE"
+fi
+
 if [ "$AUTO_YES" = false ]; then
     read -p "使用此网卡? (y/n) [默认: y]: " -n 1 -r
     echo
@@ -304,7 +331,27 @@ echo ""
 echo "=== 生成客户端配置文件 ==="
 
 # 获取服务器公网 IP
-SERVER_PUBLIC_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || echo "YOUR_SERVER_IP")
+SERVER_PUBLIC_IP=""
+echo "获取服务器公网 IP..."
+
+# 尝试多种方法获取公网 IP
+if [ -z "$SERVER_PUBLIC_IP" ]; then
+    SERVER_PUBLIC_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")
+fi
+if [ -z "$SERVER_PUBLIC_IP" ]; then
+    SERVER_PUBLIC_IP=$(curl -s --connect-timeout 5 icanhazip.com 2>/dev/null || echo "")
+fi
+if [ -z "$SERVER_PUBLIC_IP" ]; then
+    SERVER_PUBLIC_IP=$(curl -s --connect-timeout 5 ipinfo.io/ip 2>/dev/null || echo "")
+fi
+
+# 如果仍然无法获取，使用默认值
+if [ -z "$SERVER_PUBLIC_IP" ]; then
+    echo "⚠ 无法自动获取公网 IP，请手动修改客户端配置文件中的 Endpoint"
+    SERVER_PUBLIC_IP="YOUR_SERVER_IP"
+else
+    echo "✓ 检测到公网 IP: $SERVER_PUBLIC_IP"
+fi
 
 for i in $(seq 1 $CLIENT_COUNT); do
     CLIENT_IP="${VPN_PREFIX}.$((i+1))"

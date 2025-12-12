@@ -65,18 +65,40 @@ UPSTREAM_SECURITY=auto
 UPSTREAM_NETWORK=tcp
 UPSTREAM_TLS_SECURITY=tls
 UPSTREAM_TLS_SERVER_NAME=<TLS域名>
+
+# 代理启动命令（当网络受限时使用，可选）
+PROXY_STARTUP_CMD="sshpass -p '<密码>' ssh -D 1080 -N -f -o StrictHostKeyChecking=no <用户>@<代理服务器>"
 ```
 
 ### 安装步骤
 
 **注意：以下脚本需要在远程云服务器上执行**
 
+#### 方式 1: 一键安装（推荐）
+
 ```bash
 # 1. 安装 WireGuard
-sudo bash wireguard-install.sh
+sudo bash wireguard-install.sh -y
 
-# 2. 安装 V2Ray
-sudo bash v2ray-install-step1.sh
+# 2. 一键安装 V2Ray（包含透明代理）
+sudo bash v2ray-install.sh
+```
+
+#### 方式 2: 分步安装
+
+```bash
+# 1. 安装 WireGuard
+sudo bash wireguard-install.sh -y
+
+# 2. 安装 V2Ray 核心
+sudo bash v2ray-install-step1-core.sh
+
+# 3. 启用 TCP 透明代理
+sudo bash v2ray-install-step2-enable-tcp-proxy.sh
+
+# 4. (可选) 启用 UDP 透明代理
+sudo bash v2ray-install-step3-enable-udp-proxy.sh
+```
 
 # 3. 启用 TCP 透明代理
 sudo bash v2ray-install-step2-enable-tcp-proxy.sh
@@ -87,7 +109,7 @@ sudo bash v2ray-install-step3-enable-udp-proxy.sh
 
 ### 完整部署流程
 
-**方式 1: SSH 登录后执行**
+**阿里云 ECS 部署（推荐预安装）:**
 
 ```bash
 # 1. 配置环境变量（在本地）
@@ -100,11 +122,37 @@ scp *.sh .env ubuntu@<服务器IP>:~/
 # 3. SSH 登录到远程服务器
 ssh ubuntu@<服务器IP>
 
-# 4. 在远程服务器上依次执行脚本
-sudo bash wireguard-install.sh
-sudo bash v2ray-install-step1.sh
-sudo bash v2ray-install-step2-enable-tcp-proxy.sh
-sudo bash v2ray-install-step3-enable-udp-proxy.sh
+# 4. 运行预安装脚本（避免内核升级中断）
+sudo bash aliyun-pre-install.sh
+sudo reboot
+
+# 5. 重新登录后执行主安装
+sudo bash wireguard-install.sh -y
+sudo bash v2ray-install.sh
+
+# 6. 退出远程服务器
+exit
+
+# 7. 下载配置文件到本地
+scp -r ubuntu@<服务器IP>:~/private ./
+```
+
+**其他云服务商部署:**
+
+```bash
+# 1. 配置环境变量（在本地）
+cp .env.example .env
+# 编辑 .env 填入实际服务器信息
+
+# 2. 从本地上传脚本到远程服务器
+scp *.sh .env ubuntu@<服务器IP>:~/
+
+# 3. SSH 登录到远程服务器
+ssh ubuntu@<服务器IP>
+
+# 4. 直接执行主安装
+sudo bash wireguard-install.sh -y
+sudo bash v2ray-install.sh
 
 # 5. 退出远程服务器
 exit
@@ -113,7 +161,7 @@ exit
 scp -r ubuntu@<服务器IP>:~/private ./
 ```
 
-**方式 2: 使用 sshpass 远程执行（需要密码）**
+**使用 sshpass 远程执行（需要密码）:**
 
 ```bash
 # 1. 复制并配置环境变量
@@ -126,13 +174,16 @@ source .env
 # 3. 上传脚本和配置
 sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh .env $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/
 
-# 4. 远程执行脚本（-y 参数使用默认配置，无需交互）
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/wireguard-install.sh -y"
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step1.sh"
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step2-enable-tcp-proxy.sh"
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step3-enable-udp-proxy.sh"
+# 4. 阿里云环境：先运行预安装
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/aliyun-pre-install.sh"
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo reboot"
+sleep 120  # 等待重启
 
-# 5. 下载配置文件
+# 5. 远程执行主安装（-y 参数使用默认配置，无需交互）
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/wireguard-install.sh -y"
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install.sh"
+
+# 6. 下载配置文件
 sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/private ./
 ```
 
@@ -212,8 +263,11 @@ sudo iptables -t mangle -L V2RAY_MARK -n -v
 
 ## 详细文档
 
+- [阿里云 ECS 部署指南](docs/DEPLOYMENT-ALIYUN.md)
+- [腾讯云 CVM 部署指南](docs/DEPLOYMENT-TENCENT.md)
 - [WireGuard 安装指南](docs/WIREGUARD-SETUP-GUIDE.md)
-- [V2Ray 安装指南](docs/V2RAY-INSTALL-STEP1.md)
+- [V2Ray 一键安装指南](docs/V2RAY-INSTALL.md)
+- [V2Ray 核心安装指南](docs/V2RAY-INSTALL-STEP1-CORE.md)
 - [TCP 透明代理指南](docs/V2RAY-INSTALL-STEP2-ENABLE-TCP-PROXY.md)
 - [UDP 透明代理指南](docs/V2RAY-INSTALL-STEP3-ENABLE-UDP-PROXY.md)
 

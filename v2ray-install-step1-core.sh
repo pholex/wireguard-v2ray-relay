@@ -23,6 +23,11 @@ setup_system_proxy() {
         no_proxy_list="$no_proxy_list,amazonaws.com,amazonaws.com.cn,compute.internal,ec2.internal"
     fi
     
+    # 如果是阿里云 ECS，添加阿里云镜像域名
+    if curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
+        no_proxy_list="$no_proxy_list,mirrors.cloud.aliyuncs.com,mirrors.aliyun.com,aliyuncs.com"
+    fi
+    
     echo "设置系统级代理: $proxy_url"
     
     # 设置到 /etc/environment
@@ -131,72 +136,92 @@ else
     echo "✗ 未检测到 1080 端口代理"
 fi
 
+# 如果没有代理，检测 V2Ray 安装脚本可访问性
+if [ -z "$TEMP_PROXY" ]; then
+    echo "检测 V2Ray 安装脚本可访问性..."
+    
+    # 检测安装脚本
+    SCRIPT_OK=false
+    if timeout 8 curl --connect-timeout 5 -s -I https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-release.sh >/dev/null 2>&1; then
+        SCRIPT_OK=true
+    fi
+    
+    # 检测下载速度（下载前 100KB 测试速度）
+    SPEED_OK=false
+    if [ "$SCRIPT_OK" = true ]; then
+        echo "测试 GitHub 下载速度..."
+        SPEED_TEST=$(timeout 10 curl --connect-timeout 5 -s -r 0-102400 -w "%{speed_download}" -o /dev/null https://github.com/v2fly/v2ray-core/releases/download/v5.41.0/v2ray-linux-64.zip 2>/dev/null)
+        
+        if [ -n "$SPEED_TEST" ] && [ "$(echo "$SPEED_TEST > 50000" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+            SPEED_OK=true
+            echo "✓ 下载速度正常 ($(echo "scale=1; $SPEED_TEST/1024" | bc -l 2>/dev/null || echo "unknown") KB/s)"
+        else
+            echo "✗ 下载速度过慢 ($(echo "scale=1; $SPEED_TEST/1024" | bc -l 2>/dev/null || echo "0") KB/s)"
+        fi
+    fi
+    
+    if [ "$SCRIPT_OK" = true ] && [ "$SPEED_OK" = true ]; then
+        echo "✓ V2Ray 安装条件满足"
+    else
+        echo "✗ V2Ray 安装条件不满足"
+        if [ "$SCRIPT_OK" = false ]; then
+            echo "  - GitHub 无法访问"
+        fi
+        if [ "$SPEED_OK" = false ]; then
+            echo "  - 下载速度过慢（需要 >50KB/s）"
+        fi
+        
+        # 尝试启动代理
+        if [ -f ".env" ]; then
+            source .env
+            if [ -n "$PROXY_STARTUP_CMD" ]; then
+                echo "⚡ 尝试启动代理解决网络问题..."
+                echo "执行: $PROXY_STARTUP_CMD"
+                eval "$PROXY_STARTUP_CMD"
+                
+                # 等待代理启动
+                sleep 5
+                
+                # 重新检测 1080 端口
+                if netstat -tlnp 2>/dev/null | grep -q ":1080 " || ss -tlnp 2>/dev/null | grep -q ":1080 "; then
+                    echo "✓ 代理已启动，重新检测..."
+                    PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s ip-api.com 2>/dev/null)
+                    if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
+                        echo "✓ 代理连接成功，代理IP: $PROXY_TEST_RESULT"
+                        setup_system_proxy "socks5://127.0.0.1:1080"
+                        TEMP_PROXY="socks5://127.0.0.1:1080"
+                    else
+                        echo "✗ 代理启动失败"
+                        echo "安装已取消"
+                        exit 1
+                    fi
+                else
+                    echo "✗ 代理启动失败"
+                    echo "安装已取消"
+                    exit 1
+                fi
+            else
+                echo "⚠️  未配置代理启动命令"
+                echo "安装已取消"
+                exit 1
+            fi
+        else
+            echo "⚠️  未找到 .env 配置文件"
+            echo "安装已取消"
+            exit 1
+        fi
+    fi
+fi
+
 echo ""
 
-# 检查 V2Ray 是否已安装
+# 检查 V2Ray 是否已安装（仅用于提示）
 if [ -f "/usr/local/bin/v2ray" ]; then
     echo "检测到 V2Ray 已安装"
     echo "V2Ray 版本: $(/usr/local/bin/v2ray version | head -1)"
-    echo ""
-    echo "是否重新安装？"
-    echo "1. 重新安装"
-    echo "2. 仅重启服务"
-    echo "0. 退出"
-    read -p "请选择 (0-2, 默认 2): " REINSTALL
-    
-    if [ -z "$REINSTALL" ]; then
-        REINSTALL=2
-    fi
-    
-    case $REINSTALL in
-        0)
-            echo "退出脚本"
-            if [ -n "$TEMP_PROXY" ]; then
-                cleanup_system_proxy "$TEMP_PROXY"
-            fi
-            exit 0
-            ;;
-        1)
-            echo "开始重新安装..."
-            ;;
-        2)
-            echo "重启 V2Ray 服务..."
-            
-            # 检查配置文件是否存在
-            if [ ! -f "/usr/local/etc/v2ray/config.json" ]; then
-                echo "✗ 配置文件不存在，需要重新安装"
-                echo "开始重新安装..."
-            else
-                systemctl stop v2ray 2>/dev/null || true
-                systemctl start v2ray
-                sleep 3
-                
-                if systemctl is-active --quiet v2ray && (netstat -tlnp 2>/dev/null | grep -q ":7890 " || ss -tlnp 2>/dev/null | grep -q ":7890 "); then
-                    echo "✓ V2Ray 服务重启成功"
-                    
-                    if [ -n "$TEMP_PROXY" ]; then
-                        cleanup_system_proxy "$TEMP_PROXY"
-                    fi
-                    
-                    setup_system_proxy "socks5://127.0.0.1:7890"
-                    
-                    echo ""
-                    echo "=== 配置完成 ==="
-                    echo "V2Ray 代理地址: socks5://127.0.0.1:7890"
-                    exit 0
-                else
-                    echo "✗ V2Ray 服务重启失败，继续重新安装..."
-                fi
-            fi
-            ;;
-        *)
-            echo "无效选择，退出"
-            if [ -n "$TEMP_PROXY" ]; then
-                cleanup_system_proxy "$TEMP_PROXY"
-            fi
-            exit 1
-            ;;
-    esac
+    echo "开始重新安装和配置..."
+else
+    echo "开始全新安装 V2Ray..."
 fi
 
 # 安装 V2Ray
