@@ -19,12 +19,12 @@ setup_system_proxy() {
     local no_proxy_list="localhost,127.0.0.1,::1,169.254.169.254"
     
     # 如果是 AWS EC2，添加 AWS 特定域名
-    if curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
+    if timeout 5 curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
         no_proxy_list="$no_proxy_list,amazonaws.com,amazonaws.com.cn,compute.internal,ec2.internal"
     fi
     
     # 如果是阿里云 ECS，添加阿里云镜像域名
-    if curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
+    if timeout 5 curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
         no_proxy_list="$no_proxy_list,mirrors.cloud.aliyuncs.com,mirrors.aliyun.com,aliyuncs.com"
     fi
     
@@ -183,7 +183,7 @@ if [ -z "$TEMP_PROXY" ]; then
                 sleep 5
                 
                 # 重新检测 1080 端口
-                if netstat -tlnp 2>/dev/null | grep -q ":1080 " || ss -tlnp 2>/dev/null | grep -q ":1080 "; then
+                if netstat -tlnp 2>/dev/null | grep -q ":1080" || ss -tlnp 2>/dev/null | grep -q ":1080"; then
                     echo "✓ 代理已启动，重新检测..."
                     PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s ip-api.com 2>/dev/null)
                     if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
@@ -311,7 +311,7 @@ fi
 ROUTING_RULES+='
       {
         "type": "field",
-        "domain": ["domain:docker.com", "domain:docker.io", "domain:google.com", "domain:youtube.com"],
+        "domain": ["domain:docker.com", "domain:docker.io", "domain:google.com", "domain:youtube.com", "domain:ip-api.com"],
         "outboundTag": "proxy"
       },
       {
@@ -461,9 +461,15 @@ echo "系统级代理已配置:"
 echo "- /etc/environment (全局环境变量)"
 echo "- /etc/systemd/system.conf.d/proxy.conf (systemd 服务)"
 echo ""
-echo "当前会话使用代理:"
+echo "💡 在当前会话中启用代理:"
+echo "set -a; source /etc/environment; set +a"
+echo ""
+echo "或手动设置:"
 echo "export http_proxy=socks5://127.0.0.1:7890"
 echo "export https_proxy=socks5://127.0.0.1:7890"
+echo ""
+echo "验证代理:"
+echo "curl ip-api.com  # 应显示上游服务器位置信息"
 echo ""
 echo "服务管理命令:"
 echo "- 查看状态: systemctl status v2ray"

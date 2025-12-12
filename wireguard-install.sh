@@ -6,9 +6,47 @@
 set -e
 
 # 解析命令行参数
-AUTO_YES=false
-if [[ "$1" == "-y" ]] || [[ "$1" == "--yes" ]]; then
-    AUTO_YES=true
+AUTO_YES=true  # 默认自动模式
+SHOW_HELP=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--interactive)
+            AUTO_YES=false
+            shift
+            ;;
+        -h|--help)
+            SHOW_HELP=true
+            shift
+            ;;
+        *)
+            echo "未知参数: $1"
+            SHOW_HELP=true
+            shift
+            ;;
+    esac
+done
+
+# 显示帮助信息
+if [ "$SHOW_HELP" = true ]; then
+    echo "WireGuard 安装和配置脚本"
+    echo ""
+    echo "用法: $0 [选项]"
+    echo ""
+    echo "选项:"
+    echo "  -i, --interactive    启用交互模式，允许自定义配置"
+    echo "  -h, --help          显示此帮助信息"
+    echo ""
+    echo "默认行为:"
+    echo "  - 自动模式（无交互）"
+    echo "  - 端口: 51820"
+    echo "  - 网段: 10.0.8.0/24"
+    echo "  - 客户端数量: 2"
+    echo ""
+    echo "示例:"
+    echo "  $0                   # 自动安装（推荐）"
+    echo "  $0 --interactive     # 交互式安装，可自定义配置"
+    exit 0
 fi
 
 echo "=== WireGuard 安装和配置脚本 ==="
@@ -76,6 +114,7 @@ fi
 
 # 配置参数
 if [ "$AUTO_YES" = false ]; then
+    echo "=== 交互式配置 ==="
     read -p "WireGuard 监听端口 [默认: 51820]: " WG_PORT
     WG_PORT=${WG_PORT:-51820}
 
@@ -85,10 +124,11 @@ if [ "$AUTO_YES" = false ]; then
     read -p "需要创建几个客户端配置? [默认: 2]: " CLIENT_COUNT
     CLIENT_COUNT=${CLIENT_COUNT:-2}
 else
+    echo "=== 自动配置 ==="
     WG_PORT=51820
     VPN_SUBNET="10.0.8.0/24"
     CLIENT_COUNT=2
-    echo "自动模式: 使用默认配置"
+    echo "使用默认配置（如需自定义请使用 --interactive 参数）"
 fi
 
 # 提取网段前缀
@@ -110,7 +150,7 @@ if [ "$AUTO_YES" = false ]; then
         exit 1
     fi
 else
-    echo "自动模式: 确认配置"
+    echo "自动确认配置"
 fi
 
 # 一、安装 WireGuard 和必要工具
@@ -255,7 +295,7 @@ if [ "$AUTO_YES" = false ]; then
         read -p "请输入网卡名称: " DEFAULT_INTERFACE
     fi
 else
-    echo "自动模式: 使用默认网卡"
+    echo "自动使用默认网卡"
 fi
 echo "使用网卡: $DEFAULT_INTERFACE"
 echo ""
