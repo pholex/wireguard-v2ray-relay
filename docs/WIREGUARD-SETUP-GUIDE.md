@@ -1,8 +1,35 @@
 # WireGuard 安装和配置指南
 
-本指南适用于 Ubuntu Server 22.04 LTS。
+本指南适用于 Ubuntu Server 22.04 LTS 和 24.04 LTS。
 
-## 一、安装 WireGuard
+## 快速安装（推荐）
+
+### 使用自动化脚本
+
+```bash
+# 交互模式（可自定义配置）
+sudo bash wireguard-install.sh
+
+# 自动模式（使用默认配置）
+sudo bash wireguard-install.sh -y
+```
+
+**默认配置：**
+- 监听端口：51820
+- VPN 网段：10.0.8.0/24
+- 客户端数量：2
+
+脚本会自动：
+- 检测云服务商环境
+- 安装 WireGuard 和必要工具（unzip、sshpass、jq）
+- 生成服务器和客户端密钥
+- 创建配置文件
+- 启动服务并配置防火墙
+- 生成客户端配置文件到 `private/` 目录
+
+## 手动安装（可选）
+
+如需手动安装，可参考以下步骤：
 
 ### 1. 更新软件包列表
 ```bash

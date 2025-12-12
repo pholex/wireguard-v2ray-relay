@@ -38,6 +38,22 @@ if [ -f /etc/os-release ]; then
     fi
 fi
 
+# 检测云服务商环境
+echo "=== 检测云服务商环境 ==="
+CLOUD_PROVIDER="unknown"
+if curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
+    CLOUD_PROVIDER="aliyun"
+    echo "检测到阿里云 ECS 环境"
+elif curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
+    CLOUD_PROVIDER="aws"
+    echo "检测到 AWS EC2 环境"
+elif curl -s --connect-timeout 2 http://metadata.tencentyun.com/latest/meta-data/instance-id >/dev/null 2>&1; then
+    CLOUD_PROVIDER="tencent"
+    echo "检测到腾讯云 CVM 环境"
+else
+    echo "未检测到已知云服务商环境"
+fi
+
 # 配置参数
 if [ "$AUTO_YES" = false ]; then
     read -p "WireGuard 监听端口 [默认: 51820]: " WG_PORT
@@ -77,18 +93,70 @@ else
     echo "自动模式: 确认配置"
 fi
 
-# 一、安装 WireGuard
-echo "=== 安装 WireGuard ==="
+# 一、安装 WireGuard 和必要工具
+echo "=== 安装 WireGuard 和必要工具 ==="
+
+# 检查内核 WireGuard 支持
+echo "检查内核 WireGuard 支持..."
+KERNEL_HAS_WG=false
+if [ -d "/sys/module/wireguard" ] || modinfo wireguard >/dev/null 2>&1; then
+    KERNEL_HAS_WG=true
+    echo "✓ 内核已支持 WireGuard"
+else
+    echo "⚠ 内核不支持 WireGuard，需要 DKMS 编译"
+fi
 
 # 检查是否已安装
 if command -v wg &> /dev/null; then
-    echo "✓ WireGuard 已安装"
+    echo "✓ WireGuard 工具已安装"
     wg --version
 else
     echo "正在安装 WireGuard..."
     apt update
-    apt install -y wireguard
-    echo "✓ WireGuard 安装完成"
+    
+    # 根据内核支持情况选择安装包
+    if [ "$KERNEL_HAS_WG" = true ]; then
+        echo "安装 WireGuard 工具包（内核已支持）..."
+        apt install -y wireguard-tools
+    else
+        echo "安装完整 WireGuard 包（包含 DKMS）..."
+        apt install -y wireguard
+    fi
+    
+    # 验证安装
+    if command -v wg &> /dev/null; then
+        echo "✓ WireGuard 安装完成"
+    else
+        echo "✗ WireGuard 安装失败"
+        exit 1
+    fi
+fi
+
+# 检查并安装 unzip（V2Ray 安装需要）
+if ! command -v unzip &> /dev/null; then
+    echo "正在安装 unzip（V2Ray 安装需要）..."
+    apt install -y unzip
+    echo "✓ unzip 安装完成"
+else
+    echo "✓ unzip 已安装"
+fi
+
+# 检查并安装 sshpass（远程管理需要）
+if ! command -v sshpass &> /dev/null; then
+    echo "正在安装 sshpass（远程管理需要）..."
+    apt install -y sshpass
+    echo "✓ sshpass 安装完成"
+else
+    echo "✓ sshpass 已安装"
+fi
+
+# 检查并安装 jq（JSON 解析需要）
+if ! command -v jq &> /dev/null; then
+    echo "正在安装 jq（JSON 解析需要）..."
+    apt install -y jq
+    echo "✓ jq 安装完成"
+else
+    echo "✓ jq 已安装"
 fi
 
 echo ""

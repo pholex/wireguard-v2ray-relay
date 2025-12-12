@@ -113,7 +113,7 @@ TEMP_PROXY=""
 if netstat -tlnp 2>/dev/null | grep -q ":1080 " || ss -tlnp 2>/dev/null | grep -q ":1080 "; then
     echo "✓ 检测到 1080 端口有服务监听"
     echo "测试代理连接..."
-    PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s http://httpbin.org/ip 2>/dev/null)
+    PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s ip-api.com 2>/dev/null)
     if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
         echo "✓ 1080 端口代理可用，代理IP: $PROXY_TEST_RESULT"
         echo "设置临时代理加速安装..."
@@ -229,6 +229,40 @@ echo ""
 # 配置 V2Ray
 echo "=== 配置 V2Ray ==="
 
+# 加载环境变量
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    echo "加载配置文件: $SCRIPT_DIR/.env"
+    source "$SCRIPT_DIR/.env"
+else
+    echo "✗ 未找到 .env 配置文件"
+    echo "请复制 .env.example 为 .env 并配置上游服务器信息"
+    echo "cp .env.example .env"
+    exit 1
+fi
+
+# 检查必需配置
+if [ -z "$UPSTREAM_SERVER" ] || [ -z "$UPSTREAM_PORT" ] || [ -z "$UPSTREAM_USER_ID" ]; then
+    echo "✗ 缺少必需的上游服务器配置"
+    echo "请在 .env 文件中配置:"
+    echo "- UPSTREAM_SERVER (上游服务器地址)"
+    echo "- UPSTREAM_PORT (端口)"
+    echo "- UPSTREAM_USER_ID (用户ID)"
+    exit 1
+fi
+
+# 设置默认值
+UPSTREAM_ALTER_ID=${UPSTREAM_ALTER_ID:-0}
+UPSTREAM_SECURITY=${UPSTREAM_SECURITY:-"auto"}
+UPSTREAM_NETWORK=${UPSTREAM_NETWORK:-"tcp"}
+UPSTREAM_TLS_SECURITY=${UPSTREAM_TLS_SECURITY:-"tls"}
+UPSTREAM_TLS_SERVER_NAME=${UPSTREAM_TLS_SERVER_NAME:-"$UPSTREAM_SERVER"}
+
+echo "上游服务器配置:"
+echo "- 地址: $UPSTREAM_SERVER:$UPSTREAM_PORT"
+echo "- 用户ID: ${UPSTREAM_USER_ID:0:8}..."
+echo "- TLS域名: $UPSTREAM_TLS_SERVER_NAME"
+
 # 检查是否为 AWS EC2 实例
 IS_AWS_EC2=false
 if curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
@@ -303,20 +337,20 @@ tee /usr/local/etc/v2ray/config.json << EOF
       "protocol": "vmess",
       "settings": {
         "vnext": [{
-          "address": "56.155.163.90",
-          "port": 443,
+          "address": "$UPSTREAM_SERVER",
+          "port": $UPSTREAM_PORT,
           "users": [{
-            "id": "33b08c56-5a77-40f2-b0b7-78455c2a748d",
-            "alterId": 0,
-            "security": "auto"
+            "id": "$UPSTREAM_USER_ID",
+            "alterId": $UPSTREAM_ALTER_ID,
+            "security": "$UPSTREAM_SECURITY"
           }]
         }]
       },
       "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
+        "network": "$UPSTREAM_NETWORK",
+        "security": "$UPSTREAM_TLS_SECURITY",
         "tlsSettings": {
-          "serverName": "orford.cn"
+          "serverName": "$UPSTREAM_TLS_SERVER_NAME"
         }
       }
     },
@@ -385,7 +419,7 @@ setup_system_proxy "socks5://127.0.0.1:7890"
 # 测试代理连接
 echo ""
 echo "测试代理连接..."
-PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:7890 --connect-timeout 10 -s http://httpbin.org/ip 2>/dev/null)
+PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:7890 --connect-timeout 10 -s ip-api.com 2>/dev/null)
 if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
     echo "✓ 代理连接测试成功"
     echo "代理IP: $PROXY_TEST_RESULT"

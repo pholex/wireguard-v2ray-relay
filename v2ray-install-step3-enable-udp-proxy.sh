@@ -42,13 +42,22 @@ echo ""
 
 # 读取现有配置中的上游服务器信息
 echo "=== 读取现有配置 ==="
-UPSTREAM_ADDRESS=$(grep -A 20 '"outbounds"' /usr/local/etc/v2ray/config.json | grep '"address"' | head -1 | sed 's/.*"\(.*\)".*/\1/')
-UPSTREAM_PORT=$(grep -A 20 '"outbounds"' /usr/local/etc/v2ray/config.json | grep '"port"' | head -1 | sed 's/.*: \(.*\),/\1/')
-UPSTREAM_ID=$(grep -A 20 '"outbounds"' /usr/local/etc/v2ray/config.json | grep '"id"' | head -1 | sed 's/.*"\(.*\)".*/\1/')
-SERVER_NAME=$(grep -A 20 '"outbounds"' /usr/local/etc/v2ray/config.json | grep '"serverName"' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+# 使用 jq 解析配置
+UPSTREAM_ADDRESS=$(jq -r '.outbounds[0].settings.vnext[0].address' /usr/local/etc/v2ray/config.json 2>/dev/null)
+UPSTREAM_PORT=$(jq -r '.outbounds[0].settings.vnext[0].port' /usr/local/etc/v2ray/config.json 2>/dev/null)
+UPSTREAM_ID=$(jq -r '.outbounds[0].settings.vnext[0].users[0].id' /usr/local/etc/v2ray/config.json 2>/dev/null)
+SERVER_NAME=$(jq -r '.outbounds[0].streamSettings.tlsSettings.serverName' /usr/local/etc/v2ray/config.json 2>/dev/null)
+
+# 检查解析结果
+if [ -z "$UPSTREAM_ADDRESS" ] || [ "$UPSTREAM_ADDRESS" = "null" ] || [ -z "$UPSTREAM_PORT" ] || [ "$UPSTREAM_PORT" = "null" ]; then
+    echo "✗ 无法解析上游服务器配置"
+    echo "请检查 V2Ray 配置文件格式是否正确"
+    exit 1
+fi
 
 echo "上游服务器: $UPSTREAM_ADDRESS:$UPSTREAM_PORT"
-echo "UUID: $UPSTREAM_ID"
+echo "UUID: ${UPSTREAM_ID:0:8}..."
 echo "SNI: $SERVER_NAME"
 echo ""
 
@@ -159,6 +168,20 @@ cat > /usr/local/etc/v2ray/config.json << EOF
 EOF
 
 echo "✓ 配置文件已更新"
+
+# 验证配置语法
+echo "验证配置语法..."
+if ! /usr/local/bin/v2ray test -config /usr/local/etc/v2ray/config.json; then
+    echo "✗ 配置文件语法错误，恢复备份"
+    BACKUP_FILE=$(ls -t /usr/local/etc/v2ray/config.json.backup.* | head -1)
+    if [ -n "$BACKUP_FILE" ]; then
+        cp "$BACKUP_FILE" /usr/local/etc/v2ray/config.json
+        echo "已恢复备份: $BACKUP_FILE"
+    fi
+    exit 1
+fi
+
+echo "✓ 配置语法验证通过"
 echo ""
 
 # 重启 V2Ray
@@ -173,6 +196,16 @@ if ! systemctl is-active --quiet v2ray; then
 fi
 
 echo "✓ V2Ray 服务已重启"
+
+# 检查端口监听
+echo "检查端口监听..."
+if netstat -ulnp 2>/dev/null | grep -E "(:60002 |:60002$)" || ss -ulnp 2>/dev/null | grep -E "(:60002 |:60002$)"; then
+    echo "✓ UDP 透明代理端口 60002 正在监听"
+else
+    echo "✗ UDP 透明代理端口 60002 未监听"
+    exit 1
+fi
+
 echo ""
 
 # 检查 TPROXY 内核模块
@@ -222,6 +255,14 @@ iptables -t mangle -A V2RAY_MARK -p udp -j TPROXY --on-port 60002 --tproxy-mark 
 iptables -t mangle -A PREROUTING -i wg0 -p udp -j V2RAY_MARK
 
 echo "✓ UDP iptables 规则已配置"
+
+# 验证规则是否生效
+if ! iptables -t mangle -C PREROUTING -i wg0 -p udp -j V2RAY_MARK 2>/dev/null; then
+    echo "✗ UDP iptables 规则未正确应用"
+    exit 1
+fi
+
+echo "✓ UDP iptables 规则验证通过"
 echo ""
 
 # 配置策略路由
@@ -236,6 +277,19 @@ ip rule add fwmark 1 table 100
 ip route add local 0.0.0.0/0 dev lo table 100
 
 echo "✓ 策略路由已配置"
+
+# 验证策略路由
+if ! ip rule show | grep -q "fwmark 0x1"; then
+    echo "✗ 策略路由规则未正确应用"
+    exit 1
+fi
+
+if ! ip route show table 100 | grep -q "local default"; then
+    echo "✗ 策略路由表未正确配置"
+    exit 1
+fi
+
+echo "✓ 策略路由验证通过"
 echo ""
 
 # 创建持久化脚本

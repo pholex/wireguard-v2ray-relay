@@ -29,13 +29,43 @@ graph LR
 ### 前提条件
 
 - Ubuntu Server 22.04 LTS 或 24.04 LTS
-- 云服务器实例（腾讯云 CVM/Lighthouse、阿里云 ECS、AWS EC2 等）
+- 云服务器实例（腾讯云 CVM/Lighthouse、阿里云 ECS/SAS、AWS EC2 等）
 - 可用的上游 V2Ray 服务器
 
 **Ubuntu 版本说明：**
 - 本项目完全兼容 Ubuntu 22.04 和 24.04
 - Ubuntu 24.04 默认使用 nftables，但通过 iptables 兼容层，所有 iptables 命令仍然正常工作
 - 脚本无需修改即可在两个版本上运行
+
+### 配置准备
+
+**重要：在运行脚本前，必须先配置上游服务器信息**
+
+```bash
+# 1. 复制配置模板
+cp .env.example .env
+
+# 2. 编辑配置文件
+vim .env
+```
+
+配置 `.env` 文件中的上游服务器信息：
+```bash
+# 部署服务器
+DEPLOY_SERVER_IP=<服务器IP>
+DEPLOY_SERVER_USER=<用户名>
+DEPLOY_SERVER_PASS=<服务器密码>
+
+# V2Ray 上游服务器配置（必须配置）
+UPSTREAM_SERVER=<上游服务器地址>
+UPSTREAM_PORT=<端口>
+UPSTREAM_USER_ID=<用户ID>
+UPSTREAM_ALTER_ID=0
+UPSTREAM_SECURITY=auto
+UPSTREAM_NETWORK=tcp
+UPSTREAM_TLS_SECURITY=tls
+UPSTREAM_TLS_SERVER_NAME=<TLS域名>
+```
 
 ### 安装步骤
 
@@ -60,22 +90,26 @@ sudo bash v2ray-install-step3-enable-udp-proxy.sh
 **方式 1: SSH 登录后执行**
 
 ```bash
-# 1. 从本地上传脚本到远程服务器
-scp *.sh ubuntu@<服务器IP>:~/
+# 1. 配置环境变量（在本地）
+cp .env.example .env
+# 编辑 .env 填入实际服务器信息
 
-# 2. SSH 登录到远程服务器
+# 2. 从本地上传脚本到远程服务器
+scp *.sh .env ubuntu@<服务器IP>:~/
+
+# 3. SSH 登录到远程服务器
 ssh ubuntu@<服务器IP>
 
-# 3. 在远程服务器上依次执行脚本
+# 4. 在远程服务器上依次执行脚本
 sudo bash wireguard-install.sh
 sudo bash v2ray-install-step1.sh
 sudo bash v2ray-install-step2-enable-tcp-proxy.sh
 sudo bash v2ray-install-step3-enable-udp-proxy.sh
 
-# 4. 退出远程服务器
+# 5. 退出远程服务器
 exit
 
-# 5. 下载配置文件到本地
+# 6. 下载配置文件到本地
 scp -r ubuntu@<服务器IP>:~/private ./
 ```
 
@@ -89,17 +123,17 @@ cp .env.example .env
 # 2. 加载环境变量
 source .env
 
-# 3. 上传脚本
-sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh $SERVER_USER@$SERVER_IP:~/
+# 3. 上传脚本和配置
+sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh .env $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/
 
-# 2. 远程执行脚本（-y 参数使用默认配置，无需交互）
-sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/wireguard-install.sh -y"
-sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step1.sh"
-sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step2-enable-tcp-proxy.sh"
-sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "sudo bash ~/v2ray-install-step3-enable-udp-proxy.sh"
+# 4. 远程执行脚本（-y 参数使用默认配置，无需交互）
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/wireguard-install.sh -y"
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step1.sh"
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step2-enable-tcp-proxy.sh"
+sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install-step3-enable-udp-proxy.sh"
 
 # 5. 下载配置文件
-sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no -r $SERVER_USER@$SERVER_IP:~/private ./
+sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/private ./
 ```
 
 **注意**: 
@@ -109,15 +143,24 @@ sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no -r $SERVER_USER@$SERVE
 
 ## 功能特性
 
+### 自动化部署
+- 一键安装脚本，无需手动配置
+- 支持多云环境（腾讯云、阿里云、AWS EC2）
+- 智能环境检测和适配
+- 完整的错误处理和回滚机制
+
 ### WireGuard VPN
 - 高性能加密隧道
 - 自动生成服务器和客户端配置
 - 支持多客户端
+- 自动安装必要工具（jq、sshpass 等）
 
 ### V2Ray 代理
 - SOCKS5 代理（端口 7890）
 - 智能路由（国内直连，国外代理）
 - Docker/Google/YouTube 域名代理
+- 配置文件语法验证
+- 从 .env 文件读取上游服务器配置
 
 ### 透明代理
 - **TCP 透明代理**: 自动代理 HTTP/HTTPS 流量
@@ -183,4 +226,4 @@ sudo iptables -t mangle -L V2RAY_MARK -n -v
 - Email: pholex@gmail.com
 
 ---
-最后更新: 2025-12-04
+最后更新: 2025-12-12

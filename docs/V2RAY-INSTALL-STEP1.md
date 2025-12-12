@@ -6,17 +6,75 @@
 - Ubuntu Server 22.04 LTS
 - 已有可用的上游 V2Ray 服务器
 
+## 配置准备
+
+### 1. 配置上游服务器信息
+
+复制环境变量模板：
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，配置上游服务器信息：
+```bash
+# 部署服务器
+DEPLOY_SERVER_IP=<服务器IP>
+DEPLOY_SERVER_USER=<用户名>
+DEPLOY_SERVER_PASS=<服务器密码>
+
+# V2Ray 上游服务器配置
+UPSTREAM_SERVER=<上游服务器地址>
+UPSTREAM_PORT=<端口>
+UPSTREAM_USER_ID=<用户ID>
+UPSTREAM_ALTER_ID=0
+UPSTREAM_SECURITY=auto
+UPSTREAM_NETWORK=tcp
+UPSTREAM_TLS_SECURITY=tls
+UPSTREAM_TLS_SERVER_NAME=<TLS域名>
+```
+
+**重要说明：**
+- 必须配置 `UPSTREAM_SERVER`、`UPSTREAM_PORT`、`UPSTREAM_USER_ID`
+- 其他参数有默认值，可根据实际情况调整
+- 脚本会自动从 `.env` 读取配置，无需手动修改脚本
+
 ## 架构说明
 
 ```
-客户端 → WireGuard隧道 → 腾讯云服务器 → V2Ray代理 → 上游服务器
+客户端 → WireGuard隧道 → 云服务器 → V2Ray代理 → 上游服务器
 ```
 
 - WireGuard 提供加密隧道
 - V2Ray 提供 SOCKS5 代理服务
 - 客户端通过 WireGuard 访问服务器的 V2Ray 代理
 
-## 一、安装 V2Ray
+## 一、使用自动化脚本安装
+
+### 运行安装脚本
+
+```bash
+sudo bash v2ray-install-step1.sh
+```
+
+脚本会自动：
+- 检查环境和依赖
+- 从 `.env` 读取上游服务器配置
+- 下载并安装 V2Ray
+- 生成配置文件
+- 启动并配置服务
+- 设置系统级代理
+
+### 脚本功能特性
+
+- **智能代理检测**：自动检测 1080 端口代理，加速安装
+- **环境适配**：支持 AWS EC2 环境特殊配置
+- **配置验证**：验证配置文件语法正确性
+- **服务管理**：自动启动服务并检查状态
+- **系统代理**：配置全局代理环境变量
+
+## 二、手动安装（可选）
+
+如需手动安装，可参考以下步骤：
 
 ### 使用官方脚本安装
 
@@ -29,11 +87,9 @@ bash <(curl -L https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/
 - 创建配置目录 `/usr/local/etc/v2ray/`
 - 创建 systemd 服务 `v2ray.service`
 
-## 二、配置 V2Ray
-
 ### 创建配置文件
 
-创建 `/usr/local/etc/v2ray/config.json`：
+创建 `/usr/local/etc/v2ray/config.json`（需要替换实际的上游服务器信息）：
 
 ```json
 {
