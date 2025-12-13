@@ -50,7 +50,6 @@ PROXY_STARTUP_CMD="sshpass -p '<密码>' ssh -D 1080 -N -f -o StrictHostKeyCheck
 - 检测 1080 端口现有代理
 - 测试 GitHub 访问速度
 - 网络受限时自动启动代理
-- 支持阿里云镜像直连
 
 ### Step 2: TCP 透明代理
 

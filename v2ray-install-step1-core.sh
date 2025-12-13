@@ -23,10 +23,8 @@ setup_system_proxy() {
         no_proxy_list="$no_proxy_list,amazonaws.com,amazonaws.com.cn,compute.internal,ec2.internal"
     fi
     
-    # 如果是阿里云 ECS，添加阿里云镜像域名
-    if timeout 5 curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
-        no_proxy_list="$no_proxy_list,mirrors.cloud.aliyuncs.com,mirrors.aliyun.com,aliyuncs.com"
-    fi
+    # 腾讯云和阿里云域名始终直连（用于镜像下载等）
+    no_proxy_list="$no_proxy_list,tencent.com,tencentyun.com,aliyun.com,aliyuncs.com"
     
     echo "设置系统级代理: $proxy_url"
     
@@ -176,29 +174,60 @@ if [ -z "$TEMP_PROXY" ]; then
             source .env
             if [ -n "$PROXY_STARTUP_CMD" ]; then
                 echo "⚡ 尝试启动代理解决网络问题..."
-                echo "执行: $PROXY_STARTUP_CMD"
-                eval "$PROXY_STARTUP_CMD"
                 
-                # 等待代理启动
-                sleep 5
-                
-                # 重新检测 1080 端口
+                # 先检查是否已有可用代理
                 if netstat -tlnp 2>/dev/null | grep -q ":1080" || ss -tlnp 2>/dev/null | grep -q ":1080"; then
-                    echo "✓ 代理已启动，重新检测..."
+                    echo "检测到 1080 端口已有服务，测试连接..."
                     PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s ip-api.com 2>/dev/null)
                     if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
-                        echo "✓ 代理连接成功，代理IP: $PROXY_TEST_RESULT"
+                        echo "✓ 现有代理可用，代理IP: $PROXY_TEST_RESULT"
                         setup_system_proxy "socks5://127.0.0.1:1080"
                         TEMP_PROXY="socks5://127.0.0.1:1080"
                     else
-                        echo "✗ 代理启动失败"
+                        echo "现有代理不可用，尝试重新启动..."
+                        pkill -f "ssh -D 1080" 2>/dev/null || true
+                        sleep 2
+                    fi
+                fi
+                
+                # 如果还没有可用代理，尝试启动
+                if [ -z "$TEMP_PROXY" ]; then
+                    echo "执行: $PROXY_STARTUP_CMD"
+                    PROXY_OUTPUT=$(eval "$PROXY_STARTUP_CMD" 2>&1)
+                    PROXY_EXIT_CODE=$?
+                    
+                    if [ $PROXY_EXIT_CODE -ne 0 ]; then
+                        echo "⚠️  代理启动命令执行失败 (退出码: $PROXY_EXIT_CODE)"
+                        echo "错误信息: $PROXY_OUTPUT"
+                    fi
+                    
+                    # 等待代理启动
+                    sleep 5
+                    
+                    # 重新检测 1080 端口
+                    if netstat -tlnp 2>/dev/null | grep -q ":1080" || ss -tlnp 2>/dev/null | grep -q ":1080"; then
+                        echo "✓ 代理已启动，重新检测..."
+                        PROXY_TEST_RESULT=$(curl --socks5 127.0.0.1:1080 --connect-timeout 10 -s ip-api.com 2>/dev/null)
+                        if [ $? -eq 0 ] && [ -n "$PROXY_TEST_RESULT" ]; then
+                            echo "✓ 代理连接成功，代理IP: $PROXY_TEST_RESULT"
+                            setup_system_proxy "socks5://127.0.0.1:1080"
+                            TEMP_PROXY="socks5://127.0.0.1:1080"
+                        else
+                            echo "✗ 代理端口已启动但连接测试失败"
+                            if [ $PROXY_EXIT_CODE -ne 0 ]; then
+                                echo "可能原因: $PROXY_OUTPUT"
+                            fi
+                            echo "安装已取消"
+                            exit 1
+                        fi
+                    else
+                        echo "✗ 代理启动失败 - 1080端口未监听"
+                        if [ $PROXY_EXIT_CODE -ne 0 ] && [ -z "$PROXY_OUTPUT" ]; then
+                            echo "未获取到详细错误信息"
+                        fi
                         echo "安装已取消"
                         exit 1
                     fi
-                else
-                    echo "✗ 代理启动失败"
-                    echo "安装已取消"
-                    exit 1
                 fi
             else
                 echo "⚠️  未配置代理启动命令"
@@ -316,6 +345,16 @@ ROUTING_RULES+='
       },
       {
         "type": "field",
+        "domain": ["domain:tencent.com", "domain:tencentyun.com"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": ["domain:aliyun.com", "domain:aliyuncs.com"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
         "domain": ["geosite:cn"],
         "outboundTag": "direct"
       },
@@ -429,6 +468,26 @@ for i in {1..10}; do
     fi
     sleep 1
 done
+
+echo ""
+
+# 网络优化
+echo "=== 网络优化 ==="
+echo "启用 BBR 加速..."
+if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
+    echo 'net.core.default_qdisc=fq' | sudo tee -a /etc/sysctl.conf
+fi
+if ! grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+    echo 'net.ipv4.tcp_congestion_control=bbr' | sudo tee -a /etc/sysctl.conf
+fi
+sudo sysctl -p >/dev/null 2>&1
+
+echo "优化系统参数..."
+if ! grep -q "* soft nofile 65535" /etc/security/limits.conf; then
+    echo '* soft nofile 65535' | sudo tee -a /etc/security/limits.conf
+    echo '* hard nofile 65535' | sudo tee -a /etc/security/limits.conf
+fi
+echo "✓ 网络优化完成"
 
 echo ""
 

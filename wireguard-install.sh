@@ -79,35 +79,19 @@ fi
 # 检测云服务商环境
 echo "=== 检测云服务商环境 ==="
 CLOUD_PROVIDER="unknown"
-if curl -s --connect-timeout 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
-    CLOUD_PROVIDER="aliyun"
-    echo "检测到阿里云 ECS 环境"
-    
-    # 只有在 WireGuard 未安装时才提醒内核升级问题
-    if ! command -v wg &> /dev/null; then
-        echo "⚠️  阿里云 ECS 安装 WireGuard 可能触发内核升级"
-        echo "建议先运行预安装脚本："
-        echo "sudo bash aliyun-pre-install.sh"
-        echo ""
-        if [ "$AUTO_YES" = false ]; then
-            read -p "是否继续安装? (可能触发内核升级) (y/n): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                echo "已取消，请先运行预安装脚本"
-                exit 1
-            fi
-        else
-            echo "自动模式: 继续安装（可能触发内核升级）"
-        fi
-    else
-        echo "✓ WireGuard 已安装，无内核升级问题"
-    fi
-elif curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
+if curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
     CLOUD_PROVIDER="aws"
     echo "检测到 AWS EC2 环境"
 elif curl -s --connect-timeout 2 http://metadata.tencentyun.com/latest/meta-data/instance-id >/dev/null 2>&1; then
-    CLOUD_PROVIDER="tencent"
-    echo "检测到腾讯云 CVM 环境"
+    # 检测腾讯云服务类型
+    INSTANCE_TYPE=$(curl -s --connect-timeout 2 http://metadata.tencentyun.com/latest/meta-data/instance/instance-type 2>/dev/null || echo "unknown")
+    if echo "$INSTANCE_TYPE" | grep -q "^lh"; then
+        CLOUD_PROVIDER="tencent-lighthouse"
+        echo "检测到腾讯云 Lighthouse 环境"
+    else
+        CLOUD_PROVIDER="tencent-cvm"
+        echo "检测到腾讯云 CVM 环境"
+    fi
 else
     echo "未检测到已知云服务商环境"
 fi

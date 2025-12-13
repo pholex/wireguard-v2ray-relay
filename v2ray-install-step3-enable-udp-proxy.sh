@@ -31,6 +31,12 @@ if ! systemctl is-active --quiet wg-quick@wg0; then
     exit 1
 fi
 
+# 检查 jq 是否安装
+if ! command -v jq &> /dev/null; then
+    echo "✗ jq 未安装，正在安装..."
+    apt install -y jq
+fi
+
 echo "✓ 环境检查通过"
 echo ""
 
@@ -258,7 +264,7 @@ iptables -t mangle -N V2RAY_MARK
 
 # 排除保留地址
 iptables -t mangle -A V2RAY_MARK -d 0.0.0.0/8 -j RETURN
-iptables -t mangle -A V2RAY_MARK -d 10.0.0.0/8 -j RETURN
+iptables -t mangle -A V2RAY_MARK -d 10.0.8.0/24 -j RETURN
 iptables -t mangle -A V2RAY_MARK -d 127.0.0.0/8 -j RETURN
 iptables -t mangle -A V2RAY_MARK -d 169.254.0.0/16 -j RETURN
 iptables -t mangle -A V2RAY_MARK -d 172.16.0.0/12 -j RETURN
@@ -312,6 +318,8 @@ echo ""
 
 # 创建持久化脚本
 echo "=== 创建策略路由持久化脚本 ==="
+
+# 方法1: 网络接口启动脚本
 cat > /etc/network/if-up.d/v2ray-tproxy << 'SCRIPT_EOF'
 #!/bin/bash
 ip rule add fwmark 1 table 100 2>/dev/null || true
@@ -319,11 +327,33 @@ ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null || true
 SCRIPT_EOF
 
 chmod +x /etc/network/if-up.d/v2ray-tproxy
-echo "✓ 持久化脚本已创建"
+
+# 方法2: 添加到 rc.local (更可靠)
+if [ ! -f /etc/rc.local ]; then
+    echo '#!/bin/bash' > /etc/rc.local
+    chmod +x /etc/rc.local
+fi
+
+# 删除旧的路由规则（如果存在）
+sed -i '/ip rule add fwmark 1 table 100/d' /etc/rc.local
+sed -i '/ip route add local 0.0.0.0\/0 dev lo table 100/d' /etc/rc.local
+
+# 直接追加到文件末尾
+echo 'ip rule add fwmark 1 table 100 2>/dev/null || true' >> /etc/rc.local
+echo 'ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null || true' >> /etc/rc.local
+
+# 启用 rc-local 服务
+systemctl enable rc-local 2>/dev/null || true
+
+echo "✓ 持久化脚本已创建 (网络接口 + rc.local)"
 echo ""
 
 # 保存 iptables 规则
 echo "=== 保存 iptables 规则 ==="
+if ! command -v netfilter-persistent &> /dev/null; then
+    echo "安装 iptables-persistent..."
+    DEBIAN_FRONTEND=noninteractive apt install -y iptables-persistent
+fi
 netfilter-persistent save
 echo "✓ iptables 规则已保存"
 echo ""

@@ -29,8 +29,30 @@ graph LR
 ### 前提条件
 
 - Ubuntu Server 22.04 LTS 或 24.04 LTS
-- 云服务器实例（腾讯云 CVM/Lighthouse、阿里云 ECS/SAS、AWS EC2 等）
+- 云服务器实例（**推荐腾讯云**、AWS EC2 等）
 - 可用的上游 V2Ray 服务器
+
+### 依赖检查
+
+在运行脚本前，可以检查必需组件是否已安装：
+
+```bash
+# 检查必需组件
+which curl unzip jq sshpass bc netstat iptables
+
+# 检查 WireGuard 工具
+which wg wg-quick
+```
+
+如有缺失，可预先安装：
+```bash
+sudo apt update
+sudo apt install -y curl unzip jq sshpass bc net-tools iptables
+```
+
+**推荐云服务商：**
+- 🥇 **腾讯云** - 网络环境优秀，部署成功率高，推荐首选（Lighthouse 和 CVM 均可）
+- 🥈 **AWS EC2** - 稳定可靠，适合海外部署
 
 **Ubuntu 版本说明：**
 - 本项目完全兼容 Ubuntu 22.04 和 24.04
@@ -109,7 +131,7 @@ sudo bash v2ray-install-step3-enable-udp-proxy.sh
 
 ### 完整部署流程
 
-**阿里云 ECS 部署（推荐预安装）:**
+**腾讯云部署（推荐）:**
 
 ```bash
 # 1. 配置环境变量（在本地）
@@ -122,18 +144,14 @@ scp *.sh .env ubuntu@<服务器IP>:~/
 # 3. SSH 登录到远程服务器
 ssh ubuntu@<服务器IP>
 
-# 4. 运行预安装脚本（避免内核升级中断）
-sudo bash aliyun-pre-install.sh
-sudo reboot
-
-# 5. 重新登录后执行主安装
-sudo bash wireguard-install.sh -y
+# 4. 执行主安装
+sudo bash wireguard-install.sh
 sudo bash v2ray-install.sh
 
-# 6. 退出远程服务器
+# 5. 退出远程服务器
 exit
 
-# 7. 下载配置文件到本地
+# 6. 下载配置文件到本地
 scp -r ubuntu@<服务器IP>:~/private ./
 ```
 
@@ -174,12 +192,7 @@ source .env
 # 3. 上传脚本和配置
 sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh .env $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/
 
-# 4. 阿里云环境：先运行预安装
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/aliyun-pre-install.sh"
-sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo reboot"
-sleep 120  # 等待重启
-
-# 5. 远程执行主安装（-y 参数使用默认配置，无需交互）
+# 4. 远程执行主安装（-y 参数使用默认配置，无需交互）
 sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/wireguard-install.sh -y"
 sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install.sh"
 
@@ -196,7 +209,7 @@ sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERV
 
 ### 自动化部署
 - 一键安装脚本，无需手动配置
-- 支持多云环境（腾讯云、阿里云、AWS EC2）
+- 支持多云环境（腾讯云、AWS EC2）
 - 智能环境检测和适配
 - 完整的错误处理和回滚机制
 
@@ -263,8 +276,7 @@ sudo iptables -t mangle -L V2RAY_MARK -n -v
 
 ## 详细文档
 
-- [阿里云 ECS 部署指南](docs/DEPLOYMENT-ALIYUN.md)
-- [腾讯云 CVM 部署指南](docs/DEPLOYMENT-TENCENT.md)
+- [腾讯云部署指南](docs/DEPLOYMENT-TENCENT.md) ⭐ **推荐**（支持 Lighthouse 和 CVM）
 - [WireGuard 安装指南](docs/WIREGUARD-SETUP-GUIDE.md)
 - [V2Ray 一键安装指南](docs/V2RAY-INSTALL.md)
 - [V2Ray 核心安装指南](docs/V2RAY-INSTALL-STEP1-CORE.md)
@@ -280,4 +292,4 @@ sudo iptables -t mangle -L V2RAY_MARK -n -v
 - Email: pholex@gmail.com
 
 ---
-最后更新: 2025-12-12
+最后更新: 2025-12-13
