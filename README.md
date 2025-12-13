@@ -28,8 +28,7 @@ graph LR
 
 ### 前提条件
 
-- Ubuntu Server 22.04 LTS 或 24.04 LTS
-- 云服务器实例（**推荐腾讯云**、AWS EC2 等）
+- 腾讯云 Lighthouse 轻量服务器（Ubuntu22.04-Docker26 镜像）
 - 可用的上游 V2Ray 服务器
 
 ### 依赖检查
@@ -51,13 +50,7 @@ sudo apt install -y curl unzip jq sshpass bc net-tools iptables
 ```
 
 **推荐云服务商：**
-- 🥇 **腾讯云** - 网络环境优秀，部署成功率高，推荐首选（Lighthouse 和 CVM 均可）
-- 🥈 **AWS EC2** - 稳定可靠，适合海外部署
-
-**Ubuntu 版本说明：**
-- 本项目完全兼容 Ubuntu 22.04 和 24.04
-- Ubuntu 24.04 默认使用 nftables，但通过 iptables 兼容层，所有 iptables 命令仍然正常工作
-- 脚本无需修改即可在两个版本上运行
+- 🥇 **腾讯云** - 网络环境优秀，部署成功率高，推荐首选（Lighthouse 轻量服务器）
 
 ### 配置准备
 
@@ -122,13 +115,6 @@ sudo bash v2ray-install-step2-enable-tcp-proxy.sh
 sudo bash v2ray-install-step3-enable-udp-proxy.sh
 ```
 
-# 3. 启用 TCP 透明代理
-sudo bash v2ray-install-step2-enable-tcp-proxy.sh
-
-# 4. (可选) 启用 UDP 透明代理
-sudo bash v2ray-install-step3-enable-udp-proxy.sh
-```
-
 ### 完整部署流程
 
 **腾讯云部署（推荐）:**
@@ -155,30 +141,6 @@ exit
 scp -r ubuntu@<服务器IP>:~/private ./
 ```
 
-**其他云服务商部署:**
-
-```bash
-# 1. 配置环境变量（在本地）
-cp .env.example .env
-# 编辑 .env 填入实际服务器信息
-
-# 2. 从本地上传脚本到远程服务器
-scp *.sh .env ubuntu@<服务器IP>:~/
-
-# 3. SSH 登录到远程服务器
-ssh ubuntu@<服务器IP>
-
-# 4. 直接执行主安装
-sudo bash wireguard-install.sh -y
-sudo bash v2ray-install.sh
-
-# 5. 退出远程服务器
-exit
-
-# 6. 下载配置文件到本地
-scp -r ubuntu@<服务器IP>:~/private ./
-```
-
 **使用 sshpass 远程执行（需要密码）:**
 
 ```bash
@@ -196,20 +158,20 @@ sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no *.sh .env $DEPL
 sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/wireguard-install.sh -y"
 sshpass -p "$DEPLOY_SERVER_PASS" ssh -o StrictHostKeyChecking=no $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP "sudo bash ~/v2ray-install.sh"
 
-# 6. 下载配置文件
+# 5. 下载配置文件
 sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERVER_USER@$DEPLOY_SERVER_IP:~/private ./
 ```
 
 **注意**: 
-- 方式 2 需要安装 `sshpass`（macOS: `brew install sshpass`，Ubuntu: `apt install sshpass`）
+- sshpass 远程执行方式需要安装 `sshpass`（macOS: `brew install sshpass`，Ubuntu: `apt install sshpass`）
 - `wireguard-install.sh -y` 使用默认配置（端口 51820，网段 10.0.8.0/24，2 个客户端）
-- 如需自定义配置，请使用方式 1
+- 如需自定义配置，请使用腾讯云部署方式
 
 ## 功能特性
 
 ### 自动化部署
 - 一键安装脚本，无需手动配置
-- 支持多云环境（腾讯云、AWS EC2）
+- 支持腾讯云 Lighthouse 环境
 - 智能环境检测和适配
 - 完整的错误处理和回滚机制
 
@@ -276,7 +238,7 @@ sudo iptables -t mangle -L V2RAY_MARK -n -v
 
 ## 详细文档
 
-- [腾讯云部署指南](docs/DEPLOYMENT-TENCENT.md) ⭐ **推荐**（支持 Lighthouse 和 CVM）
+- [腾讯云部署指南](docs/DEPLOYMENT-TENCENT.md) ⭐ **推荐**（Lighthouse 轻量服务器）
 - [WireGuard 安装指南](docs/WIREGUARD-SETUP-GUIDE.md)
 - [V2Ray 一键安装指南](docs/V2RAY-INSTALL.md)
 - [V2Ray 核心安装指南](docs/V2RAY-INSTALL-STEP1-CORE.md)
