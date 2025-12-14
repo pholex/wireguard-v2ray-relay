@@ -8,12 +8,24 @@ set -e
 # 解析命令行参数
 AUTO_YES=true  # 默认自动模式
 SHOW_HELP=false
+ADD_CLIENT=false
+ADD_CLIENT_COUNT=1
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -i|--interactive)
             AUTO_YES=false
             shift
+            ;;
+        -a|--add-client)
+            ADD_CLIENT=true
+            # 检查下一个参数是否为数字
+            if [[ $2 =~ ^[0-9]+$ ]]; then
+                ADD_CLIENT_COUNT=$2
+                shift 2
+            else
+                shift
+            fi
             ;;
         -h|--help)
             SHOW_HELP=true
@@ -35,6 +47,8 @@ if [ "$SHOW_HELP" = true ]; then
     echo ""
     echo "选项:"
     echo "  -i, --interactive    启用交互模式，允许自定义配置"
+    echo "  -a, --add-client [N] 添加新客户端（需要已安装 WireGuard）"
+    echo "                       N: 添加的客户端数量，默认为 1"
     echo "  -h, --help          显示此帮助信息"
     echo ""
     echo "默认行为:"
@@ -46,11 +60,184 @@ if [ "$SHOW_HELP" = true ]; then
     echo "示例:"
     echo "  $0                   # 自动安装（推荐）"
     echo "  $0 --interactive     # 交互式安装，可自定义配置"
+    echo "  $0 --add-client      # 添加 1 个新客户端"
+    echo "  $0 --add-client 3    # 添加 3 个新客户端"
     exit 0
 fi
 
 echo "=== WireGuard 安装和配置脚本 ==="
 echo ""
+
+# 添加客户端功能
+if [ "$ADD_CLIENT" = true ]; then
+    echo "=== 添加新客户端 ==="
+    
+    # 检查是否为 root 用户
+    if [ "$EUID" -ne 0 ]; then
+        echo "此脚本需要 root 权限运行"
+        echo "请使用: sudo bash $0 --add-client"
+        exit 1
+    fi
+    
+    # 检查 WireGuard 是否已安装
+    if ! command -v wg &> /dev/null; then
+        echo "✗ WireGuard 未安装，请先运行安装脚本"
+        exit 1
+    fi
+    
+    # 检查 WireGuard 服务是否运行
+    if ! systemctl is-active --quiet wg-quick@wg0; then
+        echo "✗ WireGuard 服务未运行"
+        exit 1
+    fi
+    
+    # 检查添加数量是否合理
+    if [ "$ADD_CLIENT_COUNT" -lt 1 ] || [ "$ADD_CLIENT_COUNT" -gt 50 ]; then
+        echo "✗ 客户端数量必须在 1-50 之间"
+        exit 1
+    fi
+    
+    # 获取当前配置信息
+    if [ ! -f /etc/wireguard/wg0.conf ]; then
+        echo "✗ WireGuard 配置文件不存在"
+        exit 1
+    fi
+    
+    # 获取服务器公钥和端口
+    SERVER_PRIVATE_KEY=$(grep "PrivateKey" /etc/wireguard/wg0.conf | cut -d' ' -f3)
+    SERVER_PUBLIC_KEY=$(echo "$SERVER_PRIVATE_KEY" | wg pubkey)
+    WG_PORT=$(grep "ListenPort" /etc/wireguard/wg0.conf | cut -d' ' -f3)
+    
+    # 获取网段信息
+    SERVER_ADDRESS=$(grep "Address" /etc/wireguard/wg0.conf | cut -d' ' -f3)
+    VPN_PREFIX=$(echo $SERVER_ADDRESS | cut -d'.' -f1-3)
+    
+    # 获取已使用的客户端 IP
+    USED_IPS=$(grep "AllowedIPs" /etc/wireguard/wg0.conf | grep -o "${VPN_PREFIX}\.[0-9]*" | sort -n)
+    
+    echo "准备添加 $ADD_CLIENT_COUNT 个客户端"
+    echo "当前网段: ${VPN_PREFIX}.0/24"
+    echo ""
+    
+    read -p "确认添加? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "已取消"
+        exit 1
+    fi
+    
+    # 创建 private 目录
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PRIVATE_DIR="$SCRIPT_DIR/private"
+    mkdir -p "$PRIVATE_DIR"
+    
+    # 获取服务器公网 IP
+    # 优先使用腾讯云元数据服务（不受透明代理影响）
+    SERVER_PUBLIC_IP=$(curl -s --connect-timeout 3 http://metadata.tencentyun.com/latest/meta-data/public-ipv4 2>/dev/null)
+    
+    if [ -n "$SERVER_PUBLIC_IP" ] && [ "$SERVER_PUBLIC_IP" != "null" ]; then
+        echo "✓ 从腾讯云元数据获取服务器 IP: $SERVER_PUBLIC_IP"
+    elif [ -f "$PRIVATE_DIR/client1.conf" ]; then
+        SERVER_PUBLIC_IP=$(grep "Endpoint" "$PRIVATE_DIR/client1.conf" | cut -d' ' -f3 | cut -d':' -f1)
+        echo "✓ 从现有配置获取服务器 IP: $SERVER_PUBLIC_IP"
+    else
+        echo "✗ 错误: 无法获取服务器公网 IP"
+        echo "请确保运行在腾讯云环境或存在正确的客户端配置文件"
+        exit 1
+    fi
+    
+    # 添加多个客户端
+    ADDED_CLIENTS=()
+    
+    for ((i=1; i<=ADD_CLIENT_COUNT; i++)); do
+        # 找到下一个可用的 IP
+        NEXT_CLIENT_NUM=2
+        while echo "$USED_IPS" | grep -q "${VPN_PREFIX}\.${NEXT_CLIENT_NUM}"; do
+            NEXT_CLIENT_NUM=$((NEXT_CLIENT_NUM + 1))
+            # 检查是否超出 IP 范围限制
+            if [ "$NEXT_CLIENT_NUM" -gt 32 ]; then
+                echo "✗ 错误: IP 地址已达到上限 (10.0.8.32)"
+                echo "当前已添加 $((i-1)) 个客户端，无法继续添加"
+                exit 1
+            fi
+        done
+        
+        CLIENT_IP="${VPN_PREFIX}.${NEXT_CLIENT_NUM}"
+        CLIENT_NAME="client$((NEXT_CLIENT_NUM - 1))"
+        
+        echo "[$i/$ADD_CLIENT_COUNT] 添加客户端: $CLIENT_NAME ($CLIENT_IP)"
+        
+        # 生成客户端密钥
+        CLIENT_PRIVATE_KEY=$(wg genkey)
+        CLIENT_PUBLIC_KEY=$(echo "$CLIENT_PRIVATE_KEY" | wg pubkey)
+        
+        # 保存密钥文件
+        echo "$CLIENT_PRIVATE_KEY" > "$PRIVATE_DIR/${CLIENT_NAME}_private.key"
+        echo "$CLIENT_PUBLIC_KEY" > "$PRIVATE_DIR/${CLIENT_NAME}_public.key"
+        chmod 644 "$PRIVATE_DIR/${CLIENT_NAME}_private.key"
+        chmod 644 "$PRIVATE_DIR/${CLIENT_NAME}_public.key"
+        
+        # 添加到服务器配置
+        cat >> /etc/wireguard/wg0.conf << EOF
+
+[Peer]
+PublicKey = $CLIENT_PUBLIC_KEY
+AllowedIPs = $CLIENT_IP/32
+
+EOF
+        
+        # 生成客户端配置文件
+        cat > "$PRIVATE_DIR/${CLIENT_NAME}.conf" << EOF
+[Interface]
+PrivateKey = $CLIENT_PRIVATE_KEY
+Address = $CLIENT_IP/24
+DNS = 8.8.8.8, 8.8.4.4
+
+[Peer]
+PublicKey = $SERVER_PUBLIC_KEY
+Endpoint = $SERVER_PUBLIC_IP:$WG_PORT
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+EOF
+        
+        chmod 644 "$PRIVATE_DIR/${CLIENT_NAME}.conf"
+        
+        # 更新已使用 IP 列表
+        USED_IPS="$USED_IPS
+${CLIENT_IP}"
+        
+        # 记录已添加的客户端
+        ADDED_CLIENTS+=("$CLIENT_NAME:$CLIENT_IP")
+    done
+    
+    # 重新加载 WireGuard 配置
+    echo ""
+    echo "重新加载 WireGuard 配置..."
+    systemctl reload wg-quick@wg0
+    
+    # 备份服务器配置
+    cp /etc/wireguard/wg0.conf "$PRIVATE_DIR/server-wg0.conf"
+    
+    echo ""
+    echo "✓ 成功添加 $ADD_CLIENT_COUNT 个客户端!"
+    echo ""
+    echo "新添加的客户端:"
+    for client_info in "${ADDED_CLIENTS[@]}"; do
+        client_name=$(echo "$client_info" | cut -d':' -f1)
+        client_ip=$(echo "$client_info" | cut -d':' -f2)
+        echo "- $client_name: $client_ip ($PRIVATE_DIR/${client_name}.conf)"
+    done
+    echo ""
+    echo "批量下载配置文件:"
+    echo "scp -r root@$SERVER_PUBLIC_IP:$PRIVATE_DIR ./private/"
+    echo ""
+    
+    # 显示当前连接状态
+    echo "当前 WireGuard 状态:"
+    wg show
+    
+    exit 0
+fi
 
 # 检查是否为 root 用户
 if [ "$EUID" -ne 0 ]; then

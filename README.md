@@ -165,6 +165,7 @@ sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERV
 **注意**: 
 - sshpass 远程执行方式需要安装 `sshpass`（macOS: `brew install sshpass`，Ubuntu: `apt install sshpass`）
 - `wireguard-install.sh -y` 使用默认配置（端口 51820，网段 10.0.8.0/24，2 个客户端）
+- 可使用 `--add-client` 参数动态添加更多客户端（最多 31 个）
 - 如需自定义配置，请使用腾讯云部署方式
 
 ## 功能特性
@@ -178,7 +179,8 @@ sshpass -p "$DEPLOY_SERVER_PASS" scp -o StrictHostKeyChecking=no -r $DEPLOY_SERV
 ### WireGuard VPN
 - 高性能加密隧道
 - 自动生成服务器和客户端配置
-- 支持多客户端
+- 支持多客户端（最多 31 个）
+- 动态添加客户端功能
 - 自动安装必要工具（jq、sshpass 等）
 
 ### V2Ray 代理
@@ -227,6 +229,10 @@ curl ip-api.com
 # 查看 WireGuard 状态
 sudo systemctl status wg-quick@wg0
 sudo wg show
+
+# 添加新客户端
+sudo bash wireguard-install.sh --add-client      # 添加 1 个客户端
+sudo bash wireguard-install.sh --add-client 3    # 添加 3 个客户端
 
 # 查看 V2Ray 状态
 sudo systemctl status v2ray
