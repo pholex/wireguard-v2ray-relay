@@ -375,14 +375,15 @@ tee /usr/local/etc/v2ray/config.json << EOF
   "dns": {
     "servers": [
       {
+        "address": "223.5.5.5",
+        "domains": ["geosite:cn"],
+        "expectIPs": ["geoip:cn"]
+      },
+      {
         "address": "8.8.8.8",
         "domains": ["geosite:geolocation-!cn"]
       },
-      {
-        "address": "223.5.5.5",
-        "domains": ["geosite:cn"]
-      },
-      "8.8.8.8"
+      "223.5.5.5"
     ]
   },
   "routing": {
