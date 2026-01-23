@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # WireGuard 安装和配置脚本
-# 适用于 Ubuntu Server 22.04 LTS
+# 适用于 Ubuntu Server 22.04 LTS (腾讯云轻量服务器)
 
 set -e
 
@@ -344,15 +344,15 @@ if command -v wg &> /dev/null; then
 else
     echo "正在安装 WireGuard..."
     
-    apt update
+    apt-get update
     
     # 根据内核支持情况选择安装包
     if [ "$KERNEL_HAS_WG" = true ]; then
         echo "安装 WireGuard 工具包（内核已支持）..."
-        apt install -y wireguard-tools
+        apt-get install -y wireguard-tools
     else
         echo "安装完整 WireGuard 包（包含 DKMS）..."
-        apt install -y wireguard
+        apt-get install -y wireguard
     fi
     
     # 验证安装
@@ -367,7 +367,7 @@ fi
 # 检查并安装 unzip（V2Ray 安装需要）
 if ! command -v unzip &> /dev/null; then
     echo "正在安装 unzip（V2Ray 安装需要）..."
-    apt install -y unzip
+    apt-get install -y unzip
     echo "✓ unzip 安装完成"
 else
     echo "✓ unzip 已安装"
@@ -376,7 +376,7 @@ fi
 # 检查并安装 sshpass（远程管理需要）
 if ! command -v sshpass &> /dev/null; then
     echo "正在安装 sshpass（远程管理需要）..."
-    apt install -y sshpass
+    apt-get install -y sshpass
     echo "✓ sshpass 安装完成"
 else
     echo "✓ sshpass 已安装"
@@ -385,7 +385,7 @@ fi
 # 检查并安装 jq（JSON 解析需要）
 if ! command -v jq &> /dev/null; then
     echo "正在安装 jq（JSON 解析需要）..."
-    apt install -y jq
+    apt-get install -y jq
     echo "✓ jq 安装完成"
 else
     echo "✓ jq 已安装"
